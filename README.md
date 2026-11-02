@@ -7,10 +7,12 @@ public repositories; storage and other services have their own limits.
 
 ## Current deployment state
 
-**Manual only. The weekly schedule is intentionally not enabled yet.**
-Cloud credentials, an end-to-end run, and retirement of the previous schedule
-must be verified before activation. Offline unit tests do not establish access
-to either account.
+**Scheduled for Mondays at 09:00 America/Chicago, including daylight saving time.**
+The first scheduled run after setup is November 9, 2026. Hosted account access,
+read-only verification, and repeated apply-mode runs were checked on November 2.
+The previous schedule has been cleared. The current source record was already
+archived; hosted verification reused it without duplicate imports. Creation of
+new records and folders is covered by offline tests, not a synthetic live import.
 
 ## What it does
 
@@ -50,9 +52,9 @@ to the intended online account. Files need not be synced for this metadata workf
 Keep the alphaXiv account-check folder: deleting it requires updating the secret
 after verifying a replacement folder in the same account.
 
-## Verify and activate
+## Manual runs and schedule controls
 
-1. Under **Actions > Weekly archive (manual until verified) > Run workflow**, choose
+1. Under **Actions > Weekly alphaXiv to Zotero archive > Run workflow**, choose
    `dry-run`. This tests both credentials, the online destination, the source
    folder, metadata retrieval and duplicate matching without mutations.
 2. Clear or disable the previous scheduled task. Only after that is verified,
@@ -60,8 +62,9 @@ after verifying a replacement folder in the same account.
 3. Run the workflow with `apply` for an appropriate Monday. Review the summary,
    then repeat it: the second run should report reused folders and already-present
    records, with no duplicate imports.
-4. After those checks pass, add the following under `on` in `archive.yml` and set
-   repository variable `WEEKLY_ARCHIVE_ENABLED` to `true`:
+4. The schedule below is installed under `on` in `archive.yml`. Repository
+   variable `WEEKLY_ARCHIVE_ENABLED=true` enables it. Set the variable to `false`
+   to pause scheduled processing; manual runs remain available.
 
    ```yaml
    schedule:

@@ -1,5 +1,8 @@
-name: Weekly archive (manual until verified)
+name: Weekly alphaXiv to Zotero archive
 on:
+  schedule:
+    - cron: '0 9 * * 1'
+      timezone: America/Chicago
   workflow_dispatch:
     inputs:
       mode:
