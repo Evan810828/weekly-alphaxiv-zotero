@@ -36,6 +36,7 @@ In repository **Settings > Secrets and variables > Actions**, add repository sec
 | Secret | Value |
 | --- | --- |
 | `ALPHAXIV_API_KEY` | API key for the intended alphaXiv account |
+| `ALPHAXIV_EXPECTED_FOLDER_ID` | ID of a known existing folder in the correct alphaXiv library; checked before writes |
 | `ZOTERO_API_KEY` | Zotero Web API key with personal-library read/write access |
 | `ZOTERO_COLLECTION_KEY` | Key of the existing `pending_archive` collection |
 
@@ -46,6 +47,8 @@ adding membership on existing records. No group-library access is needed.
 
 Zotero data sync must already have uploaded the destination and existing records
 to the intended online account. Files need not be synced for this metadata workflow.
+Keep the alphaXiv account-check folder: deleting it requires updating the secret
+after verifying a replacement folder in the same account.
 
 ## Verify and activate
 

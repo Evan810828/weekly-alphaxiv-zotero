@@ -250,6 +250,11 @@ def previous_papers(folders, day):
     return papers
 
 
+def verify_account(folders, expected_id):
+    if not any(f.get("folder_id") == expected_id for f in folders):
+        raise Gate("alphaxiv_account_fingerprint_mismatch")
+
+
 class Zotero:
     def __init__(self, key, collection):
         self.headers = {"Zotero-API-Key": key, "Zotero-API-Version": "3", "Accept": "application/json"}
@@ -357,8 +362,11 @@ COUNT_KEYS = ("folders_created", "folders_reused", "folders_would_create", "pape
 def run(alpha, zotero_factory, day, apply=False, metadata_fn=metadata):
     counts = dict.fromkeys(COUNT_KEYS, 0)
     errors = []
-    folders = ensure_folders(alpha, day, apply, counts)
-    papers = previous_papers(folders, day)
+    try:
+        folders = ensure_folders(alpha, day, apply, counts)
+        papers = previous_papers(folders, day)
+    except Gate as e:
+        return {"counts": counts, "errors": errors, "error": str(e)}
     status = "previous_star_missing" if papers is None else "previous_star_empty" if not papers else "processed"
     # Probe destination even for an empty source.
     try:
@@ -411,7 +419,7 @@ def main():
         if day > monday(dt.datetime.now(TZ).date()):
             raise Gate("future_week_not_allowed")
         report["week"] = folder_name(day)
-        needed = ("ALPHAXIV_API_KEY", "ZOTERO_API_KEY", "ZOTERO_COLLECTION_KEY")
+        needed = ("ALPHAXIV_API_KEY", "ZOTERO_API_KEY", "ZOTERO_COLLECTION_KEY", "ALPHAXIV_EXPECTED_FOLDER_ID")
         if any(not os.environ.get(k) for k in needed):
             raise Gate("required_secrets_missing")
         if not re.fullmatch(r"[A-Z0-9]{8}", os.environ["ZOTERO_COLLECTION_KEY"]):
@@ -419,6 +427,7 @@ def main():
         if args.apply and os.environ.get("OLD_SCHEDULE_CLEARED") != "true":
             raise Gate("old_schedule_clearance_required")
         alpha = AlphaXiv(os.environ["ALPHAXIV_API_KEY"])
+        verify_account(alpha.library(), os.environ["ALPHAXIV_EXPECTED_FOLDER_ID"])
         report.update(run(alpha, lambda: Zotero(os.environ["ZOTERO_API_KEY"], os.environ["ZOTERO_COLLECTION_KEY"]), day, args.apply))
     except Gate as e:
         report["error"] = str(e)

@@ -149,6 +149,18 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(a.Gate, "^alphaxiv_tool_failed$"):
             a.unpack_tool({"isError": True, "content": [{"type": "text", "text": "private details"}]})
 
+    def test_wrong_alphaxiv_account_blocks(self):
+        with self.assertRaisesRegex(a.Gate, "account_fingerprint_mismatch"):
+            a.verify_account([{"folder_id": "wrong"}], "expected")
+        a.verify_account([{"folder_id": "expected"}], "expected")
+
+    def test_truncated_source_reports_created_folders(self):
+        alpha = FakeAlpha([{}])
+        alpha.folders[1]["papers_truncated"] = True
+        result = a.run(alpha, FakeZotero, MONDAY, True)
+        self.assertEqual(result["counts"]["folders_created"], 2)
+        self.assertEqual(result["error"], "source_folder_incomplete")
+
 
 if __name__ == "__main__":
     unittest.main()
