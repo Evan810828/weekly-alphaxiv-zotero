@@ -54,15 +54,34 @@ after verifying a replacement folder in the same account.
 
 ## Manual runs and schedule controls
 
-1. Under **Actions > Weekly alphaXiv to Zotero archive > Run workflow**, choose
-   `dry-run`. This tests both credentials, the online destination, the source
-   folder, metadata retrieval and duplicate matching without mutations.
-2. Clear or disable the previous scheduled task. Only after that is verified,
-   set repository variable `OLD_SCHEDULE_CLEARED` to `true`.
-3. Run the workflow with `apply` for an appropriate Monday. Review the summary,
-   then repeat it: the second run should report reused folders and already-present
-   records, with no duplicate imports.
-4. The schedule below is installed under `on` in `archive.yml`. Repository
+**[Open manual execution](https://github.com/Evan810828/weekly-alphaxiv-zotero/actions/workflows/archive.yml)**
+
+1. Sign in to GitHub and click **Run workflow**. Keep the branch set to **main**.
+2. Choose **apply** to perform the archive, or **dry-run** to preview without changes.
+3. Leave **monday** blank for this week's run. To recover a missed run, enter that
+   run's Monday as `YYYY-MM-DD`. For example, after November 9, 2026, enter
+   `2026-11-09` to prepare Nov-Week2 and archive Nov-Week1's Star. The date refers
+   to the missed execution week, not the source folder's week. Future dates are rejected.
+4. Click **Run workflow**, open the new run, and check its **archive summary**.
+   Success with zero failures confirms completion. An empty or missing source Star
+   is explicitly reported and means there were no source papers to archive.
+
+For several missed weeks, run each Monday separately, oldest first, and wait for
+each result. Repeating a completed week reuses folders and identified records;
+it does not intentionally create duplicates. If a run failed after partial progress,
+resolve the reported error and start a fresh manual run for the same Monday.
+Manual and scheduled runs share a queue so they do not edit the library concurrently.
+
+Manual runs use GitHub's hosted computer and the existing encrypted secrets. They
+work from a phone or another computer while the laptop is off. They also work when
+`WEEKLY_ARCHIVE_ENABLED` is `false`. If GitHub disabled the entire workflow, click
+**Enable workflow** first. These steps retry the archive; they are not a general
+backup or undo for deleted library data.
+
+The old schedule was already cleared and `OLD_SCHEDULE_CLEARED=true` was set during
+setup; no need to repeat that step for manual runs.
+
+The schedule below is installed under `on` in `archive.yml`. Repository
    variable `WEEKLY_ARCHIVE_ENABLED=true` enables it. Set the variable to `false`
    to pause scheduled processing; manual runs remain available.
 

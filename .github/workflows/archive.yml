@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Read-only verification or approved library updates
+        description: Choose dry-run to preview, or apply to run the archive
         type: choice
         options: [dry-run, apply]
         default: dry-run
       monday:
-        description: Optional Monday YYYY-MM-DD for a catch-up run
+        description: Missed run's Monday (YYYY-MM-DD); blank uses this week
         type: string
         required: false
 permissions:
