@@ -1,0 +1,44 @@
+name: Weekly archive (manual until verified)
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only verification or approved library updates
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      monday:
+        description: Optional Monday YYYY-MM-DD for a catch-up run
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: weekly-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    if: github.event_name == 'workflow_dispatch' || vars.WEEKLY_ARCHIVE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check workflow logic
+        run: python3 -m unittest discover -s tests
+      - name: Verify or archive
+        env:
+          ALPHAXIV_API_KEY: ${{ secrets.ALPHAXIV_API_KEY }}
+          ZOTERO_API_KEY: ${{ secrets.ZOTERO_API_KEY }}
+          ZOTERO_COLLECTION_KEY: ${{ secrets.ZOTERO_COLLECTION_KEY }}
+          OLD_SCHEDULE_CLEARED: ${{ vars.OLD_SCHEDULE_CLEARED }}
+          RUN_MODE: ${{ inputs.mode || 'apply' }}
+          RUN_MONDAY: ${{ inputs.monday }}
+        shell: bash
+        run: |
+          args=()
+          if [ "$RUN_MODE" = "apply" ]; then args+=(--apply); fi
+          if [ -n "$RUN_MONDAY" ]; then args+=(--monday "$RUN_MONDAY"); fi
+          python3 archive.py "${args[@]}"
+
