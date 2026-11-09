@@ -110,12 +110,19 @@ The schedule below is installed under `on` in `archive.yml`. Repository
   verify the existing record and add its authoritative DOI/arXiv URL in Zotero,
   sync, then rerun. No duplicate is made.
 - Multiple matching IDs or duplicate folder names require review rather than a guess.
-- A non-arXiv source that carries a DOI is matched against Zotero by that DOI only.
-  A match is counted as `already_present` (or filed into `pending_archive` in apply
-  mode); its metadata is never fabricated. Private alphaXiv uploads and non-arXiv
-  sources with no DOI match are reported for manual metadata handling. An empty or
-  missing previous Star is reported, but this week's folders are still prepared in
-  apply mode.
+- Public papers hosted only on alphaXiv (ids like `2611.some-slug`) are imported
+  from the schema.org record on their public alphaXiv page, with the alphaXiv id
+  stored in the item's URL and Extra for deduplication. The page title must match
+  the library record or the paper fails with `alphaxiv_metadata_identity_failed`.
+- Private alphaXiv uploads have no fetchable metadata. They are matched against
+  Zotero by DOI when the source carries one, otherwise by the title rule above. A
+  DOI match is counted as `already_present` (or filed into `pending_archive` in
+  apply mode); a single same-title item already in `pending_archive` is
+  `already_present`. Nothing is ever created from a source without metadata;
+  unmatched ones fail with `source_needs_manual_metadata`. An empty or missing
+  previous Star is reported, but this week's folders are still prepared in apply mode.
+- A malformed record fails only its own paper (`unexpected_paper_failure`); the
+  remaining papers are still processed and the run is still reported as failed.
 - Reads and writes use optimistic version checks. Concurrent edits cause a reload
   or a failed run rather than overwriting collection memberships. No automatic
   replay of uncertain folder-creation requests is performed.

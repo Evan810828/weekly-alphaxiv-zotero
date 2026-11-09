@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import html as html_lib
 import json
 import os
 import re
@@ -19,6 +20,10 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("America/Chicago")
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
 ARXIV = re.compile(r"(?<![\w.])(?:\d{4}\.\d{4,5}|[a-z][a-z.-]+/\d{7})(?:v\d+)?(?!\d)", re.I)
+# alphaXiv-native papers (not on arXiv) use YYMM.slug ids whose slug contains a letter.
+ALPHAXIV_SLUG = r"\d{4}\.(?=[a-z0-9-]*[a-z])[a-z0-9-]+"
+ALPHAXIV = re.compile(r"(?:alphaxiv\.org/(?:abs|overview|pdf)/|alphaxiv:\s*)(" + ALPHAXIV_SLUG + r")(?![\w-])", re.I)
+ALPHAXIV_PAGE = "https://www.alphaxiv.org/abs/"
 
 
 class Gate(Exception):
@@ -79,6 +84,11 @@ def arxiv_id(value):
     return re.sub(r"v\d+$", "", m.group(0), flags=re.I).lower() if m else None
 
 
+def alphaxiv_id(value):
+    m = ALPHAXIV.search(urllib.parse.unquote(str(value or "")))
+    return m.group(1).lower() if m else None
+
+
 def doi(value):
     v = str(value or "").strip().lower()
     v = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", "", v)
@@ -102,6 +112,8 @@ def item_ids(item):
                     ids.add("doi:" + v)
         if value and (v := arxiv_id(value)):
             ids.add("arxiv:" + v)
+        if value and (v := alphaxiv_id(value)):
+            ids.add("alphaxiv:" + v)
     return ids
 
 
@@ -124,14 +136,14 @@ def match_item(paper, items, collection=None):
     return None
 
 
-def doi_reference(source):
-    """Match-only record for a non-arXiv source that carries a DOI; never used to create items."""
-    if source.get("type") == "public" and arxiv_id(source.get("universal_paper_id")):
-        return None
+def match_reference(source):
+    """Match-only record for a source without fetchable metadata; never used to create items."""
+    record = {"title": " ".join(str(source.get("title") or "").split())}
     for field in ("doi", "universal_paper_id", "url"):
         if value := doi(source.get(field)):
-            return {"title": " ".join(str(source.get("title") or "").split()), "DOI": value}
-    return None
+            record["DOI"] = value
+            break
+    return record
 
 
 def unpack_tool(result):
@@ -345,10 +357,36 @@ class Zotero:
         return after
 
 
+def creators(names):
+    result = []
+    for name in names:
+        parts = name.rsplit(" ", 1)
+        result.append({"creatorType": "author", **({"firstName": parts[0], "lastName": parts[1]} if len(parts) == 2 else {"name": name})})
+    return result
+
+
+def iso_date(value, fallback=""):
+    value = str(value or "").strip()
+    if re.match(r"\d{4}-\d{2}-\d{2}", value):
+        return value[:10]
+    try:
+        return dt.datetime.strptime(value[:15], "%a %b %d %Y").date().isoformat()  # JavaScript Date.toString()
+    except ValueError:
+        return str(fallback or "")[:10]
+
+
 def metadata(source):
-    aid = arxiv_id(source.get("universal_paper_id"))
-    if source.get("type") != "public" or not aid:
+    upid = str(source.get("universal_paper_id") or "").strip()
+    if source.get("type") != "public":
         raise Gate("source_needs_manual_metadata")
+    if aid := arxiv_id(upid):
+        return arxiv_metadata(aid)
+    if re.fullmatch(ALPHAXIV_SLUG, upid, re.I):
+        return alphaxiv_metadata(upid.lower(), source)
+    raise Gate("source_needs_manual_metadata")
+
+
+def arxiv_metadata(aid):
     url = "https://export.arxiv.org/api/query?" + urllib.parse.urlencode({"id_list": aid})
     raw, _ = request("arxiv", url)
     ns = {"a": "http://www.w3.org/2005/Atom", "x": "http://arxiv.org/schemas/atom"}
@@ -360,15 +398,47 @@ def metadata(source):
     authors = [a.findtext("a:name", "", ns) for a in entry.findall("a:author", ns)]
     if not title or not authors:
         raise Gate("arxiv_metadata_incomplete")
-    creators = []
-    for name in authors:
-        parts = name.rsplit(" ", 1)
-        creators.append({"creatorType": "author", **({"firstName": parts[0], "lastName": parts[1]} if len(parts) == 2 else {"name": name})})
-    return {"itemType": "preprint", "title": title, "creators": creators,
+    return {"itemType": "preprint", "title": title, "creators": creators(authors),
             "date": entry.findtext("a:published", "", ns)[:10], "repository": "arXiv",
             "archiveID": aid, "url": "https://arxiv.org/abs/" + aid,
             "DOI": entry.findtext("x:doi", "", ns) or "10.48550/arXiv." + aid,
             "extra": "arXiv: " + aid}
+
+
+def alphaxiv_metadata(upid, source):
+    """Metadata for a public alphaXiv-native paper, from the schema.org record on its public page."""
+    url = ALPHAXIV_PAGE + upid
+    raw, _ = request("alphaxiv_page", url)
+    page = raw.decode("utf-8", "replace")
+    article = None
+    for block in re.findall(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', page, re.S):
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        for candidate in data if isinstance(data, list) else [data]:
+            if isinstance(candidate, dict) and candidate.get("@type") == "ScholarlyArticle":
+                article = candidate
+    if article is None:
+        raise Gate("alphaxiv_metadata_missing")
+    title = " ".join(str(article.get("headline") or "").split())
+    citation = article.get("citation") if isinstance(article.get("citation"), dict) else {}
+    identifier = str(citation.get("identifier") or "").strip().lower()
+    same_paper = identifier == upid or alphaxiv_id(article.get("url")) == upid
+    source_title = " ".join(str(source.get("title") or "").split())
+    if not title or not same_paper or (source_title and normalized(title) != normalized(source_title)):
+        raise Gate("alphaxiv_metadata_identity_failed")
+    raw_authors = article.get("author") or []
+    raw_authors = raw_authors if isinstance(raw_authors, list) else [raw_authors]
+    authors = [a.get("name") for a in raw_authors if isinstance(a, dict) and a.get("name")]
+    if not authors:
+        authors = [html_lib.unescape(n) for n in re.findall(r'<meta name="author" content="([^"]*)"', page)]
+    authors = [" ".join(str(n).split()) for n in authors if str(n).strip()]
+    if not authors:
+        raise Gate("alphaxiv_metadata_incomplete")
+    return {"itemType": "preprint", "title": title, "creators": creators(authors),
+            "date": iso_date(article.get("datePublished"), source.get("publication_date")),
+            "repository": "alphaXiv", "archiveID": "alphaXiv:" + upid, "url": url, "extra": "alphaXiv: " + upid}
 
 
 COUNT_KEYS = ("folders_created", "folders_reused", "folders_would_create", "papers_found", "imported",
@@ -394,9 +464,15 @@ def run(alpha, zotero_factory, day, apply=False, metadata_fn=metadata):
     counts["papers_found"] = len(papers)
     items = zotero.items()
     for index, source in enumerate(papers):
+        reference = False
         try:
-            reference = doi_reference(source)
-            paper = reference or metadata_fn(source)
+            try:
+                paper = metadata_fn(source)
+            except Gate as e:
+                if str(e) != "source_needs_manual_metadata":
+                    raise
+                # No fetchable metadata (private upload or non-arXiv paper): match by DOI or title only.
+                paper, reference = match_reference(source), True
             item = match_item(paper, items, zotero.collection)
             if item:
                 if apply:
@@ -405,7 +481,7 @@ def run(alpha, zotero_factory, day, apply=False, metadata_fn=metadata):
                     result = "already_present" if zotero.collection in item["data"].get("collections", []) else "would_add_membership"
                 counts[result] += 1
             elif reference:
-                # A DOI-only source that is not in Zotero still needs its metadata entered by hand.
+                # Not already in Zotero, and nothing to create it from: enter its metadata by hand.
                 raise Gate("source_needs_manual_metadata")
             elif apply:
                 # Rescan immediately before creation, including concurrent additions.
@@ -422,6 +498,10 @@ def run(alpha, zotero_factory, day, apply=False, metadata_fn=metadata):
         except Gate as e:
             counts["failed"] += 1
             errors.append({"paper_number": index + 1, "code": str(e)})
+        except Exception:
+            # One malformed record must not abort the remaining papers; details stay out of public logs.
+            counts["failed"] += 1
+            errors.append({"paper_number": index + 1, "code": "unexpected_paper_failure"})
         if metadata_fn is metadata and not reference:
             time.sleep(3)  # Respect arXiv API pacing.
     return {"status": status, "counts": counts, "errors": errors}
