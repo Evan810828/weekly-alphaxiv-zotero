@@ -105,16 +105,32 @@ def item_ids(item):
     return ids
 
 
-def match_item(paper, items):
+def match_item(paper, items, collection=None):
     matches = [i for i in items if item_ids(i) & item_ids(paper)]
     if len(matches) > 1:
         raise Gate("multiple_identifier_matches")
     if matches:
         return matches[0]
+    if not paper.get("title"):
+        return None
     # Missing identifiers must never silently cause a duplicate.
     candidates = [i for i in items if normalized(i["data"].get("title", "")) == normalized(paper["title"])]
+    # Exactly one same-title item already filed in the destination counts as present.
+    present = [i for i in candidates if collection and collection in i["data"].get("collections", [])]
+    if len(present) == 1:
+        return present[0]
     if candidates:
         raise Gate("title_candidate_needs_identifier_review")
+    return None
+
+
+def doi_reference(source):
+    """Match-only record for a non-arXiv source that carries a DOI; never used to create items."""
+    if source.get("type") == "public" and arxiv_id(source.get("universal_paper_id")):
+        return None
+    for field in ("doi", "universal_paper_id", "url"):
+        if value := doi(source.get(field)):
+            return {"title": " ".join(str(source.get("title") or "").split()), "DOI": value}
     return None
 
 
@@ -379,19 +395,23 @@ def run(alpha, zotero_factory, day, apply=False, metadata_fn=metadata):
     items = zotero.items()
     for index, source in enumerate(papers):
         try:
-            paper = metadata_fn(source)
-            item = match_item(paper, items)
+            reference = doi_reference(source)
+            paper = reference or metadata_fn(source)
+            item = match_item(paper, items, zotero.collection)
             if item:
                 if apply:
                     result = zotero.file_existing(item)
                 else:
                     result = "already_present" if zotero.collection in item["data"].get("collections", []) else "would_add_membership"
                 counts[result] += 1
+            elif reference:
+                # A DOI-only source that is not in Zotero still needs its metadata entered by hand.
+                raise Gate("source_needs_manual_metadata")
             elif apply:
                 # Rescan immediately before creation, including concurrent additions.
                 # The subsequent write uses this snapshot's library version.
                 items = zotero.items()
-                late_match = match_item(paper, items)
+                late_match = match_item(paper, items, zotero.collection)
                 if late_match:
                     counts[zotero.file_existing(late_match)] += 1
                     continue
@@ -402,7 +422,7 @@ def run(alpha, zotero_factory, day, apply=False, metadata_fn=metadata):
         except Gate as e:
             counts["failed"] += 1
             errors.append({"paper_number": index + 1, "code": str(e)})
-        if metadata_fn is metadata:
+        if metadata_fn is metadata and not reference:
             time.sleep(3)  # Respect arXiv API pacing.
     return {"status": status, "counts": counts, "errors": errors}
 

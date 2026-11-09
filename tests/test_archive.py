@@ -154,6 +154,67 @@ class ArchiveTests(unittest.TestCase):
             a.verify_account([{"folder_id": "wrong"}], "expected")
         a.verify_account([{"folder_id": "expected"}], "expected")
 
+    def test_single_title_match_in_destination_is_present(self):
+        present = {"key": "ITEM0001", "data": {"title": "SYNTHETIC EXAMPLE!", "collections": [DEST]}}
+        self.assertIs(a.match_item(PAPER, [present], DEST), present)
+        for apply in (False, True):
+            alpha, z = FakeAlpha([{}]), FakeZotero([copy.deepcopy(present)])
+            result = a.run(alpha, lambda: z, MONDAY, apply, lambda _: PAPER)
+            self.assertEqual(result["counts"]["already_present"], 1, apply)
+            self.assertEqual(result["counts"]["failed"], 0, apply)
+            self.assertEqual(z.created, 0)
+
+    def test_title_match_outside_destination_still_blocks(self):
+        elsewhere = {"key": "ITEM0001", "data": {"title": PAPER["title"], "collections": ["OTHER234"]}}
+        with self.assertRaisesRegex(a.Gate, "identifier_review"):
+            a.match_item(PAPER, [elsewhere], DEST)
+        alpha, z = FakeAlpha([{}]), FakeZotero([elsewhere])
+        result = a.run(alpha, lambda: z, MONDAY, True, lambda _: PAPER)
+        self.assertEqual(result["counts"]["failed"], 1)
+        self.assertEqual(result["errors"][0]["code"], "title_candidate_needs_identifier_review")
+        self.assertEqual(z.created, 0)
+
+    def test_two_title_matches_in_destination_block(self):
+        present = {"data": {"title": PAPER["title"], "collections": [DEST]}}
+        with self.assertRaisesRegex(a.Gate, "identifier_review"):
+            a.match_item(PAPER, [present, copy.deepcopy(present)], DEST)
+
+    def test_doi_reference_only_for_non_arxiv_sources(self):
+        self.assertIsNone(a.doi_reference({"type": "public", "universal_paper_id": "2501.01234"}))
+        self.assertIsNone(a.doi_reference({"type": "external", "universal_paper_id": "not-a-doi", "title": "X"}))
+        ref = a.doi_reference({"type": "external", "universal_paper_id": "https://doi.org/10.1000/ABC", "title": " Some  title "})
+        self.assertEqual(ref, {"title": "Some title", "DOI": "10.1000/abc"})
+        self.assertEqual(a.doi_reference({"type": "private", "doi": "10.1000/xyz"})["DOI"], "10.1000/xyz")
+
+    def test_doi_source_in_destination_is_present(self):
+        def no_metadata(_):
+            raise AssertionError("metadata must not be fetched for DOI-only sources")
+        source = {"type": "external", "universal_paper_id": "10.1000/abc", "title": "Unrelated title"}
+        present = {"key": "ITEM0001", "data": {"title": "Different wording", "DOI": "https://doi.org/10.1000/ABC", "collections": [DEST]}}
+        for apply in (False, True):
+            alpha, z = FakeAlpha([source]), FakeZotero([copy.deepcopy(present)])
+            result = a.run(alpha, lambda: z, MONDAY, apply, no_metadata)
+            self.assertEqual(result["counts"]["already_present"], 1, apply)
+            self.assertEqual(result["counts"]["failed"], 0, apply)
+            self.assertEqual(z.created, 0)
+
+    def test_doi_source_elsewhere_is_filed_not_created(self):
+        source = {"type": "external", "universal_paper_id": "10.1000/abc"}
+        z = FakeZotero([{"key": "ITEM0001", "data": {"DOI": "10.1000/abc", "collections": ["OTHER234"]}}])
+        result = a.run(FakeAlpha([source]), lambda: z, MONDAY, True, lambda _: PAPER)
+        self.assertEqual(result["counts"]["membership_added"], 1)
+        self.assertEqual(z.records[0]["data"]["collections"], ["OTHER234", DEST])
+        self.assertEqual(z.created, 0)
+
+    def test_doi_source_without_match_still_needs_manual_metadata(self):
+        source = {"type": "external", "universal_paper_id": "10.1000/abc", "title": "Brand new"}
+        for apply in (False, True):
+            z = FakeZotero()
+            result = a.run(FakeAlpha([source]), lambda: z, MONDAY, apply, lambda _: PAPER)
+            self.assertEqual(result["counts"]["failed"], 1, apply)
+            self.assertEqual(result["errors"][0]["code"], "source_needs_manual_metadata")
+            self.assertEqual(z.created, 0)
+
     def test_truncated_source_reports_created_folders(self):
         alpha = FakeAlpha([{}])
         alpha.folders[1]["papers_truncated"] = True

@@ -104,13 +104,18 @@ The schedule below is installed under `on` in `archive.yml`. Repository
   only the selected week's preceding Star folder, not arbitrary older folders.
 - AlphaXiv's folder listing is capped. A truncated list or a count mismatch fails
   with `source_folder_incomplete`; it never reports a partial listing as complete.
-- Matching titles without reliable identifiers require review. For
-  `title_candidate_needs_identifier_review`, verify the existing record and add
-  its authoritative DOI/arXiv URL in Zotero, sync, then rerun. No duplicate is made.
+- Matching titles without reliable identifiers require review, with one exception:
+  if exactly one same-title item is already in `pending_archive`, it is counted as
+  `already_present`. Otherwise `title_candidate_needs_identifier_review` is raised;
+  verify the existing record and add its authoritative DOI/arXiv URL in Zotero,
+  sync, then rerun. No duplicate is made.
 - Multiple matching IDs or duplicate folder names require review rather than a guess.
-- Private alphaXiv uploads or non-arXiv sources are reported for manual metadata
-  handling. An empty or missing previous Star is reported, but this week's folders
-  are still prepared in apply mode.
+- A non-arXiv source that carries a DOI is matched against Zotero by that DOI only.
+  A match is counted as `already_present` (or filed into `pending_archive` in apply
+  mode); its metadata is never fabricated. Private alphaXiv uploads and non-arXiv
+  sources with no DOI match are reported for manual metadata handling. An empty or
+  missing previous Star is reported, but this week's folders are still prepared in
+  apply mode.
 - Reads and writes use optimistic version checks. Concurrent edits cause a reload
   or a failed run rather than overwriting collection memberships. No automatic
   replay of uncertain folder-creation requests is performed.
